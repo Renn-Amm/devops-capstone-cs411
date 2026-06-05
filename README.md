@@ -2,19 +2,26 @@
 
 Node.js Express app deployed via Jenkins to three targets: a Linux VM (systemd), a Docker container, and a Kubernetes cluster.
 
-## Repo structure
+## Repository Structure
+
+```text
 .
-├── index.js          # app source
-├── index.test.js     # unit tests (node:test built-in)
-├── Dockerfile        # multi-stage build
-├── Jenkinsfile       # full pipeline
-├── k8s/
+├── index.js                  # Express application
+├── index.test.js             # Unit tests (node:test)
+├── package.json              # Project dependencies
+├── package-lock.json         # Dependency lock file
+├── Dockerfile                # Multi-stage Docker build
+├── Jenkinsfile               # CI/CD pipeline definition
+├── PROMPTS.md                # Assignment prompts/documentation
+│
+├── k8s/                      # Kubernetes manifests
 │   ├── deployment.yaml
 │   ├── service.yaml
 │   └── pod.yaml
-├── systemd/
-│   └── myapp.service
-└── PROMPTS.md
+│
+└── systemd/                  # Linux service configuration
+    └── myapp.service
+```
 
 ## Prerequisites (iximiuz playground)
 
