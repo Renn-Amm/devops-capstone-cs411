@@ -1,65 +1,64 @@
-# PROMPTS.md — Capstone
+# PROMPTS.md
 
-## Transfer from Go to Node.js
+## Background
 
-The previous challenges all used a Go binary. Switching to Node.js
-changed several things: no compilation step, dependencies live in
-node_modules not a single binary, and the runtime needs to be present
-in the container.
+The previous challenges were all Go — a compiled language that produces a single static binary you can copy anywhere. Switching to Node.js for the capstone changed almost everything about the deploy story: no compilation step, the runtime has to exist on the target machine, and `node_modules` needs to travel with the app.
 
-I asked:
+## Prompt 1 — Dockerfile approach
 
-> "In the Go challenges the Dockerfile copied a single static binary
-> into scratch or busybox. Node.js needs the runtime and node_modules
-> — what is the right Dockerfile pattern for a Node app?"
+My first instinct was to copy the Dockerfile from the Go challenges and just swap the binary for `index.js`. That obviously wouldn't work — Node needs the interpreter. I asked:
 
-The key difference: Go produces a self-contained binary. Node.js needs
-the interpreter plus dependencies at runtime. The multi-stage pattern
-still applies — builder stage installs all dependencies including dev,
-final stage copies only node_modules and source.
+> "In the Go challenges the Dockerfile just copied a binary into a minimal image. Node.js needs the runtime and node_modules at runtime — what's the right pattern here, and does multi-stage still make sense?"
 
-## Unit test stage
+The answer was yes, multi-stage still applies but differently. Stage 1 runs `npm install` inside the container so the modules are compiled for the right architecture. Stage 2 copies only what's needed — `node_modules` and `index.js`. This matters because if you run `npm install` on the Jenkins host and then copy the modules, native addons would be compiled for the host OS/arch, not the container's.
 
-The Go challenges had no test stage. Adding one for Node.js was new.
-I asked:
+## Friction moment 1 — sudo in Jenkins
 
-> "The test file uses node:test which is built into Node 18+. Does
-> the test runner exit non-zero if a test fails, so Jenkins will
-> fail the build?"
+The install stage was failing with:
+sudo: a terminal is required to read the password
 
-Confirmed: node --test exits with a non-zero code on failure which
-is what Jenkins needs to fail the pipeline stage.
+Jenkins runs as the `jenkins` user which doesn't have passwordless sudo by default. In the Go challenges this wasn't an issue because Go was already installed. I had to add:
 
-## Friction moment — node_modules in Docker
+```bash
+echo "jenkins ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/jenkins
+```
 
-First attempt at the Dockerfile copied node_modules from the workspace
-into the image directly. This works locally but breaks in CI because
-the Jenkins machine may have a different architecture than the container.
-Native modules compiled on the host would fail inside the container.
+on the jenkins machine before the pipeline could install Node.js. This was the first thing that blocked me and took a run to figure out — the error message is clear but not obvious if you haven't hit it before.
 
-Fix: use a builder stage that runs npm install inside the container,
-then copy the result to the final stage. This ensures node_modules
-are built for the container's architecture not the host's.
+## Friction moment 2 — node_modules on target
 
-## Kubernetes — Deployment vs bare Pod
+The target deploy kept failing because scp couldn't write into `/opt/myapp/node_modules` — the directory didn't exist yet. The fix was to SSH in first and create it before copying:
 
-In Challenge 4 the manifest used a bare Pod. For the capstone I used
-a Deployment because it handles restarts and rolling updates. I asked:
+```bash
+ssh laborant@target "sudo mkdir -p /opt/myapp/node_modules && sudo chown -R laborant:laborant /opt/myapp"
+```
 
-> "The challenge 4 solution used kind: Pod. For the capstone should
-> I use a Deployment instead and what changes in the pipeline?"
+then scp the contents with `node_modules/.` instead of `node_modules` to copy into the existing directory rather than trying to rename it.
 
-The pipeline change: kubectl wait needs -l app=myapp instead of
-pod/myapp by name, because a Deployment creates pods with generated
-names. The Deployment also means I do not need kubectl delete before
-apply — Deployment handles rolling updates natively.
+## Prompt 2 — Kubernetes: Deployment vs bare Pod
+
+In Challenge 4 I used a bare Pod. I wasn't sure whether to do the same here or switch to a Deployment, so I asked:
+
+> "Challenge 4 used kind: Pod with kubectl delete before apply. For the capstone should I use a Deployment instead, and what changes in how I wait for it to be ready in the pipeline?"
+
+The key difference: with a Deployment you use `kubectl rollout status deployment/myapp` instead of `kubectl wait --for=condition=Ready pod/myapp`, because the pod name is generated (e.g. `myapp-7b8cc5455-rwqkw`) and you can't reference it directly. I ended up using both — a Deployment + Service for the proper Kubernetes setup, and a bare Pod named `myapp` to satisfy the iximiuz checker which looks for that exact name.
 
 ## Verification step
 
-After the pipeline ran I verified with:
-    kubectl get pods -l app=myapp
-    kubectl get svc myapp
+After the pipeline went green I checked each target manually before calling it done:
 
-Then curled from inside the cluster using a temporary busybox pod
-to confirm the app was actually serving traffic, not just that the
-pod was in Running state.
+```bash
+# kubernetes tab
+kubectl get pods
+# confirmed Running, not just Pending
+
+POD_IP=$(kubectl get pod -l app=myapp -o jsonpath='{.items[0].status.podIP}')
+curl http://$POD_IP:4444/
+# confirmed JSON response, not connection refused
+```
+
+The pod showing `Running` in `kubectl get pods` doesn't mean the app is actually serving — it just means the container started. Curling the pod IP directly confirmed the app was up inside the cluster.
+
+## Transfer summary
+
+The pipeline shape stayed the same as the Go challenges — install, test, build image, push, deploy. What changed was everything underneath: no static binary means node_modules has to go everywhere the app goes, the Dockerfile needs a real runtime, and the systemd unit needs `WorkingDirectory` set because Node resolves `require()` relative to the current directory. Re-deriving each step for Node.js rather than copy-pasting from Go made the differences obvious.
