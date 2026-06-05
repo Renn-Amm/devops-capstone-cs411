@@ -33,11 +33,11 @@ pipeline {
                     mkdir -p ~/.ssh
                     ssh-keyscan -H target >> ~/.ssh/known_hosts
                     ssh -i ~/.ssh/id_ed25519 laborant@target "
-                        sudo mkdir -p /opt/myapp &&
-                        sudo chown laborant:laborant /opt/myapp
+                        sudo mkdir -p /opt/myapp/node_modules &&
+                        sudo chown -R laborant:laborant /opt/myapp
                     "
                     scp -i ~/.ssh/id_ed25519 index.js laborant@target:/opt/myapp/index.js
-                    scp -i ~/.ssh/id_ed25519 -r node_modules laborant@target:/opt/myapp/node_modules
+                    scp -i ~/.ssh/id_ed25519 -r node_modules/. laborant@target:/opt/myapp/node_modules/
                     ssh -i ~/.ssh/id_ed25519 laborant@target "
                         sudo chown -R myapp:myapp /opt/myapp &&
                         sudo systemctl restart myapp
