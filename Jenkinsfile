@@ -72,9 +72,10 @@ pipeline {
                             --cluster=k8s \
                             --user=jenkins-robot
                         kubectl config use-context k8s
+                        kubectl delete pod myapp --ignore-not-found
                         kubectl apply -f k8s/deployment.yaml
                         kubectl apply -f k8s/service.yaml
-                        kubectl rollout status deployment/myapp --timeout=120s
+                        kubectl wait --for=condition=Ready pod/myapp --timeout=120s
                     '''
                 }
             }
