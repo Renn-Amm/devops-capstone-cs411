@@ -5,8 +5,7 @@ pipeline {
         stage('Install Dependencies') {
             steps {
                 sh '''
-                    curl -fsSL https://deb.nodesource.com/setup_24.x -o nodesource_setup.sh
-                    sudo -E bash nodesource_setup.sh
+                    curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
                     sudo apt-get install -y nodejs
                     npm install
                 '''
@@ -24,6 +23,38 @@ pipeline {
                 sh '''
                     docker build -t ttl.sh/renn-amm-capstone:2h .
                     docker push ttl.sh/renn-amm-capstone:2h
+                '''
+            }
+        }
+
+        stage('Deploy to Target') {
+            steps {
+                sh '''
+                    mkdir -p ~/.ssh
+                    ssh-keyscan -H target >> ~/.ssh/known_hosts
+                    ssh -i ~/.ssh/id_ed25519 laborant@target "
+                        sudo mkdir -p /opt/myapp &&
+                        sudo chown laborant:laborant /opt/myapp
+                    "
+                    scp -i ~/.ssh/id_ed25519 index.js laborant@target:/opt/myapp/index.js
+                    scp -i ~/.ssh/id_ed25519 -r node_modules laborant@target:/opt/myapp/node_modules
+                    ssh -i ~/.ssh/id_ed25519 laborant@target "
+                        sudo chown -R myapp:myapp /opt/myapp &&
+                        sudo systemctl restart myapp
+                    "
+                '''
+            }
+        }
+
+        stage('Deploy to Docker') {
+            steps {
+                sh '''
+                    ssh-keyscan -H docker >> ~/.ssh/known_hosts
+                    ssh -i ~/.ssh/id_ed25519 laborant@docker "
+                        docker pull ttl.sh/renn-amm-capstone:2h &&
+                        docker rm -f myapp 2>/dev/null || true &&
+                        docker run -d --name myapp -p 4444:4444 ttl.sh/renn-amm-capstone:2h
+                    "
                 '''
             }
         }
@@ -48,6 +79,7 @@ pipeline {
                 }
             }
         }
+
         stage('Health Check') {
             steps {
                 withCredentials([string(credentialsId: 'k8s-token', variable: 'K8S_TOKEN')]) {
