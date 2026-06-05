@@ -1,4 +1,4 @@
-# CS411 Capstone — Node.js CI/CD Pipeline
+# CS411 Capstone
 
 Node.js Express app deployed via Jenkins to three targets: a Linux VM (systemd), a Docker container, and a Kubernetes cluster.
 
