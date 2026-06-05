@@ -1,0 +1,13 @@
+[Unit]
+Description=My Node App
+After=network.target
+
+[Service]
+User=myapp
+ExecStart=/usr/bin/node /opt/myapp/index.js
+Restart=on-failure
+RestartSec=5
+WorkingDirectory=/opt/myapp
+
+[Install]
+WantedBy=multi-user.target
